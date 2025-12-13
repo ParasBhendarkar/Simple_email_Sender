@@ -6,7 +6,7 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 import os
-import subprocess
+from simple_email_sender import run_campaign, setup_database
 
 # --- Configuration ---
 DB_FILE = 'send_history.db'
@@ -27,6 +27,9 @@ def get_send_history():
     return history_df
 
 # --- Streamlit UI ---
+# Initialize the database
+setup_database()
+
 st.set_page_config(page_title='Simple Email Sender', layout='wide')
 st.title('✉️ Simple Email Campaign Sender')
 
@@ -69,34 +72,18 @@ with tab1:
     batch_interval = c3.number_input('Interval Between Batches (minutes)', min_value=1, value=10)
 
     st.subheader('4. Launch!')
-    if st.button('🚀 Run Locally (for testing)', help='This runs the sender script in the background.'):
-        # For a real app, you'd use a task queue like Celery or RQ.
-        # This is a simplified approach for local development.
-        st.warning('Starting the sending process. This may take a while. Check your console for logs.')
-        
-        # Set environment variables for the script
-        env = os.environ.copy()
-        env['TOTAL_PER_DAY'] = str(total_per_day)
-        env['BATCH_SIZE'] = str(batch_size)
-        env['BATCH_INTERVAL_SEC'] = str(batch_interval * 60)
-        
-        # Determine which CSV to use
-        csv_path = SAMPLE_CSV
-        if uploaded_file:
-            # Save the uploaded file temporarily to be used by the script
-            temp_csv_path = os.path.join('data', 'temp_recipients.csv')
-            with open(temp_csv_path, 'wb') as f:
-                f.write(uploaded_file.getbuffer())
-            csv_path = temp_csv_path
+    if st.button('🚀 Run Campaign', help='This will start the email sending process.'):
+        with st.spinner('Sending emails... Please wait.'):
+            # Set environment variables for the campaign
+            os.environ['TOTAL_PER_DAY'] = str(total_per_day)
+            os.environ['BATCH_SIZE'] = str(batch_size)
+            os.environ['BATCH_INTERVAL_SEC'] = str(batch_interval * 60)
 
-        process = subprocess.Popen(
-            ['python', 'simple_email_sender.py', csv_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=env
-        )
-        st.success('Sender script started. See the terminal where you launched Streamlit for progress.')
-        st.info('The UI will not update in real-time. Refresh the History tab to see results.')
+            # Run the campaign
+            run_campaign(recipients_df, subject, body_template)
+            st.success('Campaign finished! Check the History tab for results.')
+            # Automatically rerun to refresh the history
+            st.rerun()
 
     st.markdown('---')
     st.info(
@@ -116,4 +103,4 @@ with tab2:
         st.dataframe(history_df)
 
     if st.button('Refresh History'):
-        st.rerun()
+        st.rerun

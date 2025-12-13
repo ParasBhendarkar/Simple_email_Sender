@@ -16,7 +16,6 @@ from dotenv import load_dotenv # Used to load environment variables from a .env 
 load_dotenv() # This function loads variables from a .env file into the environment.
 
 # --- Configuration ---
-# CHANGE THESE default values if you want
 FROM_NAME = os.getenv('FROM_NAME', 'Your Name') # The name that will appear as the sender.
 FROM_EMAIL = os.getenv('FROM_EMAIL', 'your_email@example.com') # The email address that will be used to send emails.
 DEFAULT_SUBJECT = 'Hello from Your Company!' # The default subject line for the emails.
@@ -126,60 +125,77 @@ def send_batch(recipients, subject, body_template, dry_run=False):
             log_send(row['email'], row.get('name'), 'failed', str(e)) # Log the failure for each recipient.
 
 # --- Main Script Logic ---
-def main():
-    """Main function to run the email sending script."""
-    parser = argparse.ArgumentParser(description='Send emails from a CSV file.') # Create an argument parser.
-    parser.add_argument('csv_file', help='Path to the CSV file with recipient data.') # Add an argument for the CSV file path.
-    parser.add_argument('--dry-run', action='store_true', help='Simulate sending without actually sending emails.') # Add an argument for a dry run.
-    args = parser.parse_args() # Parse the command-line arguments.
+def run_campaign(recipients_df, subject, body_template, dry_run=False):
+    """Main logic to run an email campaign.
 
+    Args:
+        recipients_df (pd.DataFrame): DataFrame with recipient data, must include 'email' column.
+        subject (str): The subject of the email.
+        body_template (str): The body template for the email.
+        dry_run (bool): If True, simulates sending without actually sending emails.
+    """
     # --- Configuration from environment variables ---
-    total_per_day = int(os.getenv('TOTAL_PER_DAY', 100)) # Get the total number of emails to send per day from environment variables.
-    batch_size = int(os.getenv('BATCH_SIZE', 20)) # Get the number of emails to send in each batch from environment variables.
-    batch_interval = int(os.getenv('BATCH_INTERVAL_SEC', 600)) # Get the interval between batches from environment variables.
+    total_per_day = int(os.getenv('TOTAL_PER_DAY', 100))
+    batch_size = int(os.getenv('BATCH_SIZE', 20))
+    batch_interval = int(os.getenv('BATCH_INTERVAL_SEC', 600))
 
     # --- Load and prepare recipients ---
-    try:
-        recipients_df = pd.read_csv(args.csv_file) # Read the CSV file into a pandas DataFrame.
-        if 'email' not in recipients_df.columns: # Check if the 'email' column exists.
-            print('Error: CSV file must have an "email" column.') # Print an error message if the column is missing.
-            return # Exit the function.
-    except FileNotFoundError: # Catch the error if the file is not found.
-        print(f'Error: The file {args.csv_file} was not found.') # Print an error message.
-        return # Exit the function.
+    if 'email' not in recipients_df.columns:
+        print('Error: DataFrame must have an "email" column.')
+        return
 
     # Get recipients that have not been sent to today
-    conn = sqlite3.connect(DB_FILE) # Connect to the SQLite database.
-    today_sent_df = pd.read_sql_query( # Execute a SQL query to get the emails that have been sent today.
-        "SELECT email FROM sends WHERE status IN ('sent', 'dry-run') AND date(timestamp) = date('now')",
-        conn
-    )
-    conn.close() # Close the connection to the database.
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        today_sent_df = pd.read_sql_query(
+            "SELECT email FROM sends WHERE status IN ('sent', 'dry-run') AND date(timestamp) = date('now')",
+            conn
+        )
+    except pd.io.sql.DatabaseError:
+        today_sent_df = pd.DataFrame(columns=['email'])
+    finally:
+        conn.close()
 
-    recipients_to_send = recipients_df[~recipients_df['email'].isin(today_sent_df['email'])] # Filter out the recipients who have already been sent an email today.
-    recipients_to_send = recipients_to_send.head(total_per_day) # Limit the number of recipients to the total per day.
+    recipients_to_send = recipients_df[~recipients_df['email'].isin(today_sent_df['email'])]
+    recipients_to_send = recipients_to_send.head(total_per_day)
 
-    if recipients_to_send.empty: # Check if there are any recipients to send to.
-        print('No new recipients to send to today.') # Print a message if there are no new recipients.
-        return # Exit the function.
+    if recipients_to_send.empty:
+        print('No new recipients to send to today.')
+        return
 
-    print(f'Found {len(recipients_to_send)} emails to send.') # Print the number of emails to be sent.
+    print(f'Found {len(recipients_to_send)} emails to send.')
 
     # --- Process in batches ---
-    num_batches = (len(recipients_to_send) + batch_size - 1) // batch_size # Calculate the number of batches.
-    for i in range(num_batches): # Iterate over each batch.
-        start_index = i * batch_size # Calculate the starting index of the batch.
-        end_index = start_index + batch_size # Calculate the ending index of the batch.
-        batch_df = recipients_to_send.iloc[start_index:end_index] # Get the recipients for the current batch.
+    num_batches = (len(recipients_to_send) + batch_size - 1) // batch_size
+    for i in range(num_batches):
+        start_index = i * batch_size
+        end_index = start_index + batch_size
+        batch_df = recipients_to_send.iloc[start_index:end_index]
 
-        print(f'\n--- Starting Batch {i + 1}/{num_batches} ---') # Print a message indicating the start of a new batch.
-        send_batch(batch_df, DEFAULT_SUBJECT, DEFAULT_BODY_TEMPLATE, args.dry_run) # Send the batch of emails.
+        print(f'\n--- Starting Batch {i + 1}/{num_batches} ---')
+        send_batch(batch_df, subject, body_template, dry_run)
 
-        if i < num_batches - 1: # Check if this is not the last batch.
-            print(f'--- Batch finished. Waiting for {batch_interval} seconds... ---') # Print a message indicating the wait time.
-            time.sleep(batch_interval) # Wait for the specified interval before starting the next batch.
+        if i < num_batches - 1:
+            print(f'--- Batch finished. Waiting for {batch_interval} seconds... ---')
+            time.sleep(batch_interval)
 
-    print('\nAll batches processed.') # Print a message indicating that all batches have been processed.
+    print('\nAll batches processed.')
+
+
+def main():
+    """Main function to run the email sending script from the command line."""
+    parser = argparse.ArgumentParser(description='Send emails from a CSV file.')
+    parser.add_argument('csv_file', help='Path to the CSV file with recipient data.')
+    parser.add_argument('--dry-run', action='store_true', help='Simulate sending without actually sending emails.')
+    args = parser.parse_args()
+
+    try:
+        recipients_df = pd.read_csv(args.csv_file)
+    except FileNotFoundError:
+        print(f'Error: The file {args.csv_file} was not found.')
+        return
+
+    run_campaign(recipients_df, DEFAULT_SUBJECT, DEFAULT_BODY_TEMPLATE, args.dry_run)
 
 if __name__ == '__main__': # Check if the script is being run directly.
     setup_database() # Set up the database.

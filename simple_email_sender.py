@@ -52,6 +52,14 @@ def log_send(email, name, status, error_message=None):
     conn.commit() # Save the changes to the database.
     conn.close() # Close the connection to the database.
 
+def truncate_database():
+    """Delete all records from the sends table."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM sends')
+    conn.commit()
+    conn.close()
+
 # --- Email Sending Logic ---
 def create_message(recipient_email, recipient_name, subject, body_template):
     """Create an EmailMessage object."""

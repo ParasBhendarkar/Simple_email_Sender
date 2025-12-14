@@ -6,7 +6,7 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 import os
-from simple_email_sender import run_campaign, setup_database
+from simple_email_sender import run_campaign, setup_database, truncate_database
 
 # --- Configuration ---
 DB_FILE = 'send_history.db'
@@ -102,5 +102,12 @@ with tab2:
     else:
         st.dataframe(history_df)
 
-    if st.button('Refresh History'):
-        st.rerun
+    col1, col2 = st.columns([1, 0.2])
+    with col1:
+        if st.button('Refresh History'):
+            st.rerun()
+    with col2:
+        if st.button('Clear History'):
+            truncate_database()
+            st.success('Send history has been cleared.')
+            st.rerun()

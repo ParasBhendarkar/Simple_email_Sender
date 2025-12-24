@@ -1,0 +1,11 @@
+# Environment variables
+.env
+
+# Virtual environment
+venv/
+
+# Python cache
+__pycache__/
+
+# Database file
+send_history.db
